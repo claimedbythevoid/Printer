@@ -1,0 +1,42 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>GemTok-Lite Overlay</title>
+  <style>
+    html,body{margin:0;height:100%;background:transparent}
+    .stage{position:relative;width:100vw;height:100vh;overflow:hidden}
+    .toast{position:absolute;left:50%;top:12%;transform:translate(-50%,-50%);padding:14px 18px;border-radius:14px;background:rgba(0,0,0,.55);backdrop-filter:blur(8px);color:#fff;font:600 18px system-ui,Inter}
+    .video{position:absolute;inset:0;object-fit:cover;width:100%;height:100%;display:none}
+    .bmi{position:absolute;left:50%;top:20%;transform:translate(-50%,-50%);background:rgba(11,15,18,.65);color:#eaf2f1;padding:16px 18px;border:1px solid #2a363c;border-radius:16px;font:600 20px Inter}
+    .conch{position:absolute;left:50%;bottom:14%;transform:translateX(-50%);background:rgba(20,24,28,.65);color:#fff;padding:12px 16px;border-radius:999px;border:1px solid #2a363c;font:600 18px Inter}
+    .fade{animation:fade 4s both}
+    @keyframes fade{0%{opacity:0;transform:translate(-50%,-10px)}10%{opacity:1;transform:translate(-50%,0)}80%{opacity:1}100%{opacity:0;transform:translate(-50%,10px)}}
+  </style>
+</head>
+<body>
+  <div class="stage">
+    <video id="vid" class="video" playsinline></video>
+    <div id="bmibox" class="bmi" style="display:none"></div>
+    <div id="conch" class="conch" style="display:none"></div>
+  </div>
+  <script>
+    const bc = new BroadcastChannel('overlay')
+    const vid = document.getElementById('vid')
+    const bmibox = document.getElementById('bmibox')
+    const conch = document.getElementById('conch')
+
+    bc.onmessage = async ev => {
+      const p = ev.data || {}
+      if (p.type === 'video') { vid.src = p.src; vid.style.display='block'; await vid.play().catch(()=>{}); vid.onended=()=>{ vid.style.display='none'; vid.removeAttribute('src') } }
+      if (p.type === 'bmi') {
+        let txt = `${p.user}: BMI ${p.bmi}`; if (p.weightKg) txt += ` • ${p.weightKg}kg/${p.heightCm}cm`; if (p.weightLb) txt += ` • ${p.weightLb}lb/${p.heightFt}'${p.heightIn}`
+        showTemp(bmibox, txt, 4200)
+      }
+      if (p.type === 'conch') showTemp(conch, `${p.user}: ${p.answer}`, 4000)
+    }
+
+    function showTemp(el, text, ms){ el.textContent=text; el.classList.remove('fade'); el.style.display='block'; void el.offsetWidth; el.classList.add('fade'); setTimeout(()=>{ el.style.display='none' }, ms) }
+  </script>
+</body>
+</html>

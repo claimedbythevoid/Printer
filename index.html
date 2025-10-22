@@ -1,0 +1,134 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>GemTok-Lite Control</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Inter,Arial;background:#0b0f12;color:#eaf2f1;margin:0}
+    .wrap{max-width:960px;margin:0 auto;padding:24px}
+    .card{background:#11171c;border:1px solid #1e2931;border-radius:16px;padding:16px;margin-bottom:16px}
+    input,button{background:#0f1418;color:#d9e4e2;border:1px solid #29343a;border-radius:10px;padding:10px 12px}
+    .pill{display:inline-block;border:1px solid #2a363c;border-radius:999px;padding:6px 10px;margin:4px 6px 0 0;font-size:12px}
+    .log{height:300px;overflow:auto;background:#0a0e11;border:1px solid #1d2730;border-radius:8px;padding:8px;font-family:ui-monospace,monospace}
+    .grid{display:grid;gap:12px;grid-template-columns:1fr 1fr}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>GemTok-Lite Control</h1>
+
+    <div class="card">
+      <label>Target TikTok username (no @): </label>
+      <input id="username" placeholder="your_username" />
+      <button id="connect">Connect</button>
+      <span id="status" class="pill">idle</span>
+      <div style="margin-top:8px">
+        Overlays:
+        <code>/overlay.html</code> • <code>/printer.html</code>
+      </div>
+    </div>
+
+    <div class="card grid">
+      <div>
+        <h3>Mini-game: BMI by Comment</h3>
+        <p>Viewers comment: <code>bmi 150 5'6</code> or <code>bmi 68kg 170cm</code></p>
+      </div>
+      <div>
+        <h3>Magic Conch</h3>
+        <p>Viewers start with <code>conch</code> to get a random answer on the overlay.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Gift Triggers → Video</h3>
+      <div class="grid">
+        <div><label>Gift name</label><input id="giftName" placeholder="Rose" /></div>
+        <div><label>Video file</label><input id="giftVideo" placeholder="video/rose.mp4" /></div>
+      </div>
+      <button id="addMap">Add Mapping</button>
+      <div id="maps"></div>
+    </div>
+
+    <div class="card">
+      <h3>Live Log</h3>
+      <div id="log" class="log"></div>
+    </div>
+
+    <div class="card">
+      <h3>Printer Game</h3>
+      <p>Add Browser Source to <code>/printer.html</code>. Gifts print tickets; diamonds reveal letters of a secret word.</p>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io()
+    const logEl = document.getElementById('log')
+    const statusEl = document.getElementById('status')
+    const mapsEl = document.getElementById('maps')
+    const giftMap = {}
+
+    const log = s => { const t = new Date().toLocaleTimeString(); logEl.textContent += `[${t}] ${s}\n`; logEl.scrollTop = logEl.scrollHeight }
+
+    document.getElementById('connect').onclick = () => {
+      const username = document.getElementById('username').value.trim()
+      socket.emit('connectLive', { username })
+    }
+
+    document.getElementById('addMap').onclick = () => {
+      const name = document.getElementById('giftName').value.trim().toLowerCase()
+      const file = document.getElementById('giftVideo').value.trim()
+      if(!name || !file) return
+      giftMap[name] = file
+      const tag = document.createElement('span')
+      tag.className = 'pill'; tag.textContent = `${name} → ${file}`
+      mapsEl.appendChild(tag)
+    }
+
+    socket.on('connected', ({ roomId, viewerCount }) => {
+      statusEl.textContent = `connected • room ${roomId} • viewers ${viewerCount}`
+      log('Connected to LIVE')
+    })
+
+    socket.on('chat', ({ nickname, comment }) => {
+      log(`💬 ${nickname}: ${comment}`)
+      // BMI command
+      if (/^bmi\s+/i.test(comment)) {
+        const res = parseBMI(comment)
+        if (res) pushOverlay({ type: 'bmi', ...res, user: nickname })
+      }
+      // Magic Conch
+      if (/^conch\b/i.test(comment)) {
+        const answer = pick(['Yes.','No.','Ask later.','If you gift a Galaxy.','Probably not.','Absolutely.'])
+        pushOverlay({ type: 'conch', user: nickname, answer })
+      }
+    })
+
+    socket.on('gift', data => {
+      const name = (data.giftName||'').toLowerCase()
+      log(`🎁 ${data.nickname||data.uniqueId} sent ${data.giftName} x${data.repeatCount||1}`)
+      const file = giftMap[name]
+      if (file) pushOverlay({ type:'video', src:file })
+      // echo to printer overlay too
+      pushOverlay({ type:'giftEcho', payload:data })
+    })
+
+    function pick(a){ return a[Math.floor(Math.random()*a.length)] }
+    function round1(n){ return Math.round(n*10)/10 }
+    function parseBMI(text){
+      const t = text.toLowerCase()
+      const kg = /(\d{2,3})\s*kg/.exec(t)?.[1]
+      const cm = /(\d{2,3})\s*cm/.exec(t)?.[1]
+      if (kg && cm){ const m = Number(cm)/100; const bmi = Number(kg)/(m*m); return { bmi: round1(bmi), weightKg:Number(kg), heightCm:Number(cm) } }
+      const imp = /bmi\s+(\d{2,3})(?:\s+|,?\s*)(\d)'(\d{1,2})/.exec(t) || /bmi\s+(\d{2,3})(?:\s+|,?\s*)(\d)\s*ft\s*(\d{1,2})/.exec(t)
+      if(imp){ const lbs=+imp[1], ft=+imp[2], inch=+imp[3]; const kgVal=lbs*0.453592; const m=((ft*12+inch)*2.54)/100; const bmi=kgVal/(m*m); return { bmi: round1(bmi), weightLb:lbs, heightFt:ft, heightIn:inch } }
+      return null
+    }
+
+    // Broadcast to overlays on same origin
+    const bc = new BroadcastChannel('overlay')
+    function pushOverlay(payload){ bc.postMessage(payload) }
+  </script>
+</body>
+</html>
